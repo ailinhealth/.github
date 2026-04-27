@@ -1,0 +1,66 @@
+name: Reusable Branch Flow
+
+on:
+  workflow_call:
+    inputs:
+      dev-allowed-sources:
+        type: string
+        required: false
+        default: "*"
+
+      pre-allowed-prefixes:
+        type: string
+        required: false
+        default: "feature/,fix/,hotfix/"
+
+      pro-allowed-source:
+        type: string
+        required: false
+        default: "pre"
+
+jobs:
+  branch-flow:
+    name: branch-flow
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate PR branch flow
+        shell: bash
+        run: |
+          SOURCE="${{ github.head_ref }}"
+          TARGET="${{ github.base_ref }}"
+
+          echo "Source branch: $SOURCE"
+          echo "Target branch: $TARGET"
+
+          if [[ "$TARGET" == "dev" ]]; then
+            echo "PRs into dev are allowed."
+            exit 0
+          fi
+
+          if [[ "$TARGET" == "pre" ]]; then
+            IFS=',' read -ra PREFIXES <<< "${{ inputs.pre-allowed-prefixes }}"
+
+            for PREFIX in "${PREFIXES[@]}"; do
+              if [[ "$SOURCE" == "$PREFIX"* ]]; then
+                echo "PR into pre allowed from $SOURCE."
+                exit 0
+              fi
+            done
+
+            echo "PRs into pre must come from one of these prefixes: ${{ inputs.pre-allowed-prefixes }}"
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "main" ]]; then
+            if [[ "$SOURCE" == "${{ inputs.pro-allowed-source }}" ]]; then
+              echo "PR into pro allowed from $SOURCE."
+              exit 0
+            fi
+
+            echo "PRs into pro must come only from ${{ inputs.pro-allowed-source }}."
+            exit 1
+          fi
+
+          echo "Unexpected target branch: $TARGET"
+          exit 1
