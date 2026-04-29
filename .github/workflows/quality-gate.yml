@@ -82,6 +82,9 @@ jobs:
       - name: Run PHPCS
         run: vendor/bin/phpcs
 
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse
+        
       - name: Run PHP tests
         if: inputs.run-tests
         run: composer test --if-present

@@ -13,6 +13,11 @@ on:
         required: false
         default: "feature/,fix/,hotfix/"
 
+      pre-allowed-sources-extra:
+        type: string
+        required: false
+        default: "main"
+
       pro-allowed-source:
         type: string
         required: false
@@ -39,6 +44,15 @@ jobs:
           fi
 
           if [[ "$TARGET" == "pre" ]]; then
+            IFS=',' read -ra EXTRA <<< "${{ inputs.pre-allowed-sources-extra }}"
+
+            for SRC in "${EXTRA[@]}"; do
+              if [[ "$SOURCE" == "$SRC" ]]; then
+                echo "PR into pre allowed from $SOURCE."
+                exit 0
+              fi
+            done
+
             IFS=',' read -ra PREFIXES <<< "${{ inputs.pre-allowed-prefixes }}"
 
             for PREFIX in "${PREFIXES[@]}"; do
