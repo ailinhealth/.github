@@ -53,11 +53,11 @@ jobs:
 
       - name: Run Node/React tests
         if: inputs.run-tests
-        run: pnpm run test --if-present
+        run: pnpm run --if-present test
 
       - name: Run Node/React build
         if: inputs.run-build
-        run: pnpm run build --if-present
+        run: pnpm run --if-present build
 
   php:
     name: php
