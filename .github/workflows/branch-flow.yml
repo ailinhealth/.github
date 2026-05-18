@@ -43,7 +43,7 @@ jobs:
             exit 0
           fi
 
-          if [[ "$TARGET" == "pre" ]]; then
+          if [[ "$TARGET" == "pre" || "$TARGET" == "pre-eb" ]]; then
             IFS=',' read -ra EXTRA <<< "${{ inputs.pre-allowed-sources-extra }}"
 
             for SRC in "${EXTRA[@]}"; do
