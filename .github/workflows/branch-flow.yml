@@ -23,6 +23,15 @@ on:
         required: false
         default: "pre"
 
+      # Allow Dependabot's PRs to skip branch-flow rules. Dependabot branches
+      # (dependabot/...) can never originate from `pre`, so its security PRs
+      # (-> main) and version PRs (-> pre) would otherwise always fail here.
+      # The quality gate, PR title and PR label checks still apply to them.
+      allow-dependabot:
+        type: boolean
+        required: false
+        default: true
+
 jobs:
   branch-flow:
     name: branch-flow
@@ -31,12 +40,28 @@ jobs:
     steps:
       - name: Validate PR branch flow
         shell: bash
+        # Values passed via env (not inline ${{ }}) so branch names can't be
+        # interpreted as shell — avoids script injection via crafted ref names.
+        env:
+          SOURCE: ${{ github.head_ref }}
+          TARGET: ${{ github.base_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          ALLOW_DEPENDABOT: ${{ inputs.allow-dependabot }}
+          PRE_EXTRA: ${{ inputs.pre-allowed-sources-extra }}
+          PRE_PREFIXES: ${{ inputs.pre-allowed-prefixes }}
+          PRO_SOURCE: ${{ inputs.pro-allowed-source }}
         run: |
-          SOURCE="${{ github.head_ref }}"
-          TARGET="${{ github.base_ref }}"
-
           echo "Source branch: $SOURCE"
           echo "Target branch: $TARGET"
+
+          # --- Dependabot carve-out -------------------------------------------
+          if [[ "$ALLOW_DEPENDABOT" == "true" ]]; then
+            if [[ "$PR_AUTHOR" == "dependabot[bot]" || "$SOURCE" == dependabot/* ]]; then
+              echo "Dependabot PR detected — branch-flow rules skipped."
+              exit 0
+            fi
+          fi
+          # --------------------------------------------------------------------
 
           if [[ "$TARGET" == "dev" ]]; then
             echo "PRs into dev are allowed."
@@ -44,7 +69,7 @@ jobs:
           fi
 
           if [[ "$TARGET" == "pre" || "$TARGET" == "pre-eb" ]]; then
-            IFS=',' read -ra EXTRA <<< "${{ inputs.pre-allowed-sources-extra }}"
+            IFS=',' read -ra EXTRA <<< "$PRE_EXTRA"
 
             for SRC in "${EXTRA[@]}"; do
               if [[ "$SOURCE" == "$SRC" ]]; then
@@ -53,7 +78,7 @@ jobs:
               fi
             done
 
-            IFS=',' read -ra PREFIXES <<< "${{ inputs.pre-allowed-prefixes }}"
+            IFS=',' read -ra PREFIXES <<< "$PRE_PREFIXES"
 
             for PREFIX in "${PREFIXES[@]}"; do
               if [[ "$SOURCE" == "$PREFIX"* ]]; then
@@ -62,17 +87,17 @@ jobs:
               fi
             done
 
-            echo "PRs into pre must come from one of these prefixes: ${{ inputs.pre-allowed-prefixes }}"
+            echo "PRs into pre must come from one of these prefixes: $PRE_PREFIXES"
             exit 1
           fi
 
           if [[ "$TARGET" == "main" ]]; then
-            if [[ "$SOURCE" == "${{ inputs.pro-allowed-source }}" ]]; then
+            if [[ "$SOURCE" == "$PRO_SOURCE" ]]; then
               echo "PR into pro allowed from $SOURCE."
               exit 0
             fi
 
-            echo "PRs into pro must come only from ${{ inputs.pro-allowed-source }}."
+            echo "PRs into pro must come only from $PRO_SOURCE."
             exit 1
           fi
 
