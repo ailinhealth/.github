@@ -1,12 +1,19 @@
 name: Reusable Quality Gate
 
+# Consumed as: ailinhealth/.github/.github/workflows/quality-gate.yml@main
+#
+# NOTE ON MERGE QUEUE: this is a workflow_call workflow, so it has no triggers
+# of its own. The `merge_group:` trigger goes on the CALLER (each repo's
+# lint.yml). Without it the check never runs in the merge group and the queue
+# waits indefinitely with no error.
+
 on:
   workflow_call:
     inputs:
       stacks:
         required: true
         type: string
-        description: "Comma-separated list: node,react,php"
+        description: "Comma-separated list: node, react, php, python"
 
       node-version:
         required: false
@@ -18,6 +25,11 @@ on:
         type: string
         default: "8.4"
 
+      python-version:
+        required: false
+        type: string
+        default: "3.12"
+
       run-tests:
         required: false
         type: boolean
@@ -27,6 +39,15 @@ on:
         required: false
         type: boolean
         default: false
+
+      require-tests:
+        description: >-
+          When run-tests is true and no test script/suite is defined, fail
+          instead of passing silently. Keep true for repos under IEC 62304 —
+          a test step that quietly runs nothing is worse than no test step.
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   node:
@@ -53,11 +74,29 @@ jobs:
 
       - name: Run Node/React tests
         if: inputs.run-tests
-        run: pnpm run --if-present test
+        env:
+          REQUIRE_TESTS: ${{ inputs.require-tests }}
+        run: |
+          set -euo pipefail
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            pnpm run test
+          elif [[ "$REQUIRE_TESTS" == "true" ]]; then
+            echo "::error::run-tests is enabled but package.json defines no 'test' script."
+            exit 1
+          else
+            echo "::warning::No 'test' script defined — skipping."
+          fi
 
-      - name: Run Node/React build
+      - name: Run Node/React production build
         if: inputs.run-build
-        run: pnpm run --if-present build
+        run: |
+          set -euo pipefail
+          if node -e "process.exit(require('./package.json').scripts?.build ? 0 : 1)"; then
+            pnpm run build
+          else
+            echo "::error::run-build is enabled but package.json defines no 'build' script."
+            exit 1
+          fi
 
   php:
     name: php
@@ -79,15 +118,111 @@ jobs:
 
       - run: composer install --no-progress --no-interaction --prefer-dist
 
+      # Script names diverge across repos:
+      #   ACC  -> phpcs / phpstan / test
+      #   MHB  -> lint  / stan    / test  (+ --memory-limit=1G on stan)
+      # Try the canonical name, then the legacy one, then fall back to the
+      # binary. Falling back loses whatever flags the repo declared, so it
+      # emits a warning — MHB's stan needs 1G and would OOM without it on a
+      # runner that enforces a memory limit.
       - name: Run PHPCS
-        run: vendor/bin/phpcs
+        run: |
+          set -euo pipefail
+          for S in lint phpcs; do
+            if jq -e --arg s "$S" '.scripts[$s]' composer.json >/dev/null 2>&1; then
+              echo "Running: composer $S"
+              composer "$S"
+              exit 0
+            fi
+          done
+          echo "::warning::No 'lint' or 'phpcs' composer script. Falling back to vendor/bin/phpcs — repo-declared flags are lost."
+          vendor/bin/phpcs
 
       - name: Run PHPStan
-        run: vendor/bin/phpstan analyse
+        run: |
+          set -euo pipefail
+          for S in stan phpstan; do
+            if jq -e --arg s "$S" '.scripts[$s]' composer.json >/dev/null 2>&1; then
+              echo "Running: composer $S"
+              composer "$S"
+              exit 0
+            fi
+          done
+          echo "::warning::No 'stan' or 'phpstan' composer script. Falling back to vendor/bin/phpstan — repo-declared flags such as --memory-limit are lost."
+          vendor/bin/phpstan analyse
 
+      # NOTE: `composer test --if-present` (the previous command) does in fact
+      # work — composer consumes the unknown flag itself and it never reaches
+      # PHPUnit, and a missing `test` script already fails with "Command not
+      # defined". Verified against PHPUnit 11.5 / Composer 2.10. The explicit
+      # detection below is kept only because it gives a clearer error and
+      # behaves the same way across the node, php and python stacks.
       - name: Run PHP tests
         if: inputs.run-tests
-        run: composer test --if-present
+        env:
+          REQUIRE_TESTS: ${{ inputs.require-tests }}
+        run: |
+          set -euo pipefail
+          if jq -e '.scripts.test' composer.json >/dev/null 2>&1; then
+            composer test
+          elif [[ "$REQUIRE_TESTS" == "true" ]]; then
+            echo "::error::run-tests is enabled but composer.json defines no 'test' script."
+            exit 1
+          else
+            echo "::warning::No 'test' script defined — skipping."
+          fi
+
+  python:
+    name: python
+    if: contains(inputs.stacks, 'python')
+    runs-on: ubuntu-latest
+
+    # PROVISIONAL — added for Karland / WhatsApp (phase 4). Tooling choices
+    # (ruff vs flake8, pytest, lockfile strategy) are not yet decided.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [[ -f requirements.txt ]]; then
+            pip install -r requirements.txt
+          elif [[ -f pyproject.toml ]]; then
+            pip install .
+          else
+            echo "::error::No requirements.txt or pyproject.toml found."
+            exit 1
+          fi
+          pip install ruff pytest
+
+      - name: Run ruff
+        run: ruff check .
+
+      # Equivalent of the Linux production build for an interpreted language:
+      # prove every module imports cleanly on the deployment runtime.
+      - name: Import check
+        if: inputs.run-build
+        run: python -m compileall -q .
+
+      - name: Run Python tests
+        if: inputs.run-tests
+        env:
+          REQUIRE_TESTS: ${{ inputs.require-tests }}
+        run: |
+          set -euo pipefail
+          if compgen -G "test_*.py" >/dev/null || [[ -d tests ]]; then
+            pytest
+          elif [[ "$REQUIRE_TESTS" == "true" ]]; then
+            echo "::error::run-tests is enabled but no tests/ directory or test_*.py files found."
+            exit 1
+          else
+            echo "::warning::No tests found — skipping."
+          fi
 
   quality-gate:
     name: lint
@@ -95,18 +230,37 @@ jobs:
     needs:
       - node
       - php
+      - python
     if: always()
 
     steps:
       - name: Check quality result
+        env:
+          NODE_RESULT: ${{ needs.node.result }}
+          PHP_RESULT: ${{ needs.php.result }}
+          PYTHON_RESULT: ${{ needs.python.result }}
+          STACKS: ${{ inputs.stacks }}
         run: |
-          if [[ "${{ needs.node.result }}" == "failure" || "${{ needs.php.result }}" == "failure" ]]; then
-            echo "Quality gate failed"
-            exit 1
-          fi
+          set -euo pipefail
+          echo "node=$NODE_RESULT php=$PHP_RESULT python=$PYTHON_RESULT (stacks: $STACKS)"
 
-          if [[ "${{ needs.node.result }}" == "cancelled" || "${{ needs.php.result }}" == "cancelled" ]]; then
-            echo "Quality gate cancelled"
+          for RESULT in "$NODE_RESULT" "$PHP_RESULT" "$PYTHON_RESULT"; do
+            if [[ "$RESULT" == "failure" ]]; then
+              echo "::error::Quality gate failed"
+              exit 1
+            fi
+            if [[ "$RESULT" == "cancelled" ]]; then
+              echo "::error::Quality gate cancelled"
+              exit 1
+            fi
+          done
+
+          # Previously: if `stacks` was misspelled, every stack job was skipped,
+          # no result was 'failure', and the gate reported success having run
+          # nothing at all. Require that at least one stack actually executed.
+          if [[ "$NODE_RESULT" != "success" && "$PHP_RESULT" != "success" && "$PYTHON_RESULT" != "success" ]]; then
+            echo "::error::No stack job ran. Check the 'stacks' input — got: '$STACKS'."
+            echo "Valid values: node, react, php, python (comma-separated)."
             exit 1
           fi
 

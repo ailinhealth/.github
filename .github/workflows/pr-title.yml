@@ -1,0 +1,93 @@
+name: Reusable PR Title Check
+
+# Consumed as: ailinhealth/.github/.github/workflows/pr-title.yml@main
+#
+# Format: type(scope): description [TICKET-123]
+# The `release` type is retired under v2 — it existed for the pre -> main
+# release PR, which no longer exists.
+
+on:
+  workflow_call:
+    inputs:
+      types:
+        description: 'Pipe-separated allowed types.'
+        type: string
+        required: false
+        default: "feature|fix|hotfix|security|improvement|refactor|performance|chore|ci|documentation"
+
+      require-ticket:
+        description: >-
+          When true, a [TICKET-123] reference is mandatory for feature, fix and
+          hotfix. Under v2 the PR is the traceability record, so this should be
+          true — but it will reject PRs people are used to opening. Roll it out
+          deliberately.
+        type: boolean
+        required: false
+        default: false
+
+      ticket-prefixes:
+        description: 'Pipe-separated Jira project keys.'
+        type: string
+        required: false
+        default: "AIL|PLAT"
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate-title:
+    name: validate-title
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate PR title
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          TYPES: ${{ inputs.types }}
+          REQUIRE_TICKET: ${{ inputs.require-ticket }}
+          TICKET_PREFIXES: ${{ inputs.ticket-prefixes }}
+        run: |
+          set -uo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            echo "merge_group event — title already validated on the pull request."
+            exit 0
+          fi
+
+          echo "PR title: $PR_TITLE"
+
+          TICKET="\[(${TICKET_PREFIXES})-[0-9]+\]"
+
+          if [[ "$REQUIRE_TICKET" == "true" ]]; then
+            REGEX="^(${TYPES})\([a-z0-9-]+\): .+ ${TICKET}$"
+            TICKET_NOTE="required"
+          else
+            REGEX="^(${TYPES})\([a-z0-9-]+\): .+( ${TICKET})?$"
+            TICKET_NOTE="optional"
+          fi
+
+          if [[ ! "$PR_TITLE" =~ $REGEX ]]; then
+            echo "::error::Invalid PR title."
+            echo ""
+            echo "Expected format:  type(scope): description [TICKET-123]"
+            echo "Ticket reference: $TICKET_NOTE"
+            echo "Allowed types:    ${TYPES//|/, }"
+            echo "Ticket prefixes:  ${TICKET_PREFIXES//|/, }"
+            echo ""
+            echo "Examples:"
+            echo "  feature(enrollment): add clinician confirmation step [AIL-341]"
+            echo "  fix(api): prevent duplicate order creation [AIL-110]"
+            echo "  chore(ci): update quality gate"
+            exit 1
+          fi
+
+          # Under v2 the PR is the regulatory record. Nudge even when the ticket
+          # is not yet mandatory.
+          if [[ "$REQUIRE_TICKET" != "true" ]]; then
+            if [[ "$PR_TITLE" =~ ^(feature|fix|hotfix)\( ]] && [[ ! "$PR_TITLE" =~ $TICKET ]]; then
+              echo "::warning::No ticket reference. Traceability for feature/fix/hotfix expects one."
+            fi
+          fi
+
+          echo "PR title valid."
