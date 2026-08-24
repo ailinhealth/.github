@@ -1,11 +1,6 @@
 name: Reusable PR Label Check
 
 # Consumed as: ailinhealth/.github/.github/workflows/pr-labels.yml@main
-#
-# Replaces the per-repo copies in ACC and HCPD, which had diverged: HCPD's
-# branch filter was [dev, pre, pro] with no `main`, so the label check never ran
-# on the PR that produced the release notes. Both also listed `pro`, which is
-# not a branch in either repo.
 
 on:
   workflow_call:
@@ -24,6 +19,18 @@ on:
         required: false
         default: "at-least-one"
 
+      require-title-label-match:
+        description: >-
+          When true, the type prefix in the PR title must match a type label on
+          the PR. Both encode the change type, but only the label reaches the
+          changelog, so a mismatch misfiles the change in the release notes with
+          nothing to catch it. Skipped when the title does not parse as
+          type(scope): — pr-title.yml owns that failure, and two errors for one
+          mistake is worse than one.
+        type: boolean
+        required: false
+        default: false
+
 jobs:
   label-check:
     name: label-check
@@ -38,6 +45,8 @@ jobs:
           LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
           VALID_LABELS: ${{ inputs.valid-labels }}
           MODE: ${{ inputs.mode }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REQUIRE_MATCH: ${{ inputs.require-title-label-match }}
         run: |
           set -uo pipefail
 
@@ -78,3 +87,25 @@ jobs:
           fi
 
           echo "Valid label(s): $MATCHED"
+
+          # ---- title / label agreement ----------------------------------------
+          if [[ "$REQUIRE_MATCH" == "true" ]]; then
+            if [[ "$PR_TITLE" =~ ^([a-z]+)\( ]]; then
+              TITLE_TYPE="${BASH_REMATCH[1]}"
+
+              if ! echo "$VALID_JSON" | jq -e --arg t "$TITLE_TYPE" 'index($t)' >/dev/null; then
+                echo "::notice::Title type '$TITLE_TYPE' is not a known type — validate-title owns that. Skipping match check."
+              elif ! echo "$MATCHED" | jq -e --arg t "$TITLE_TYPE" 'index($t)' >/dev/null; then
+                echo "::error::Title says '$TITLE_TYPE' but the type label(s) say $MATCHED."
+                echo ""
+                echo "The label drives the changelog category and therefore the release notes."
+                echo "The title is what a person reads. They have to agree — change whichever"
+                echo "one is wrong."
+                exit 1
+              else
+                echo "Title type '$TITLE_TYPE' agrees with the label(s)."
+              fi
+            else
+              echo "::notice::Title does not parse as type(scope): — validate-title owns that. Skipping match check."
+            fi
+          fi
