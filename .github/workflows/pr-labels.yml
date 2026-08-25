@@ -60,7 +60,7 @@ jobs:
             exit 1
           fi
 
-          VALID_JSON=$(jq -cRn --arg v "$VALID_LABELS" '$v | split(",")')
+          VALID_JSON=$(jq -cRn --arg v "$VALID_LABELS" '$v | split(",") | map(gsub("^\\s+|\\s+$";""))')
 
           # Only type labels count. Workflow labels (deploy:pre, blocked,
           # needs-qa, ...) and control labels are intentionally ignored here.
@@ -90,7 +90,7 @@ jobs:
 
           # ---- title / label agreement ----------------------------------------
           if [[ "$REQUIRE_MATCH" == "true" ]]; then
-            if [[ "$PR_TITLE" =~ ^([a-z]+)\( ]]; then
+            if [[ "$PR_TITLE" =~ ^([a-z]+)[\(:] ]]; then
               TITLE_TYPE="${BASH_REMATCH[1]}"
 
               if ! echo "$VALID_JSON" | jq -e --arg t "$TITLE_TYPE" 'index($t)' >/dev/null; then

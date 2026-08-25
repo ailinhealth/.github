@@ -59,11 +59,14 @@ jobs:
 
           TICKET="\[(${TICKET_PREFIXES})-[0-9]+\]"
 
-          if [[ "$REQUIRE_TICKET" == "true" ]]; then
-            REGEX="^(${TYPES})\([a-z0-9-]+\): .+ ${TICKET}$"
-            TICKET_NOTE="required"
+          # Types whose traceability needs a ticket, with or without a scope.
+          TICKETED="^(feature|fix|hotfix)(\([a-z0-9-]+\))?:"
+
+          if [[ "$REQUIRE_TICKET" == "true" && "$PR_TITLE" =~ $TICKETED ]]; then
+            REGEX="^(${TYPES})(\([a-z0-9-]+\))?: .+ ${TICKET}$"
+            TICKET_NOTE="required for feature/fix/hotfix"
           else
-            REGEX="^(${TYPES})\([a-z0-9-]+\): .+( ${TICKET})?$"
+            REGEX="^(${TYPES})(\([a-z0-9-]+\))?: .+( ${TICKET})?$"
             TICKET_NOTE="optional"
           fi
 
@@ -71,6 +74,7 @@ jobs:
             echo "::error::Invalid PR title."
             echo ""
             echo "Expected format:  type(scope): description [TICKET-123]"
+            echo "Scope:            optional"
             echo "Ticket reference: $TICKET_NOTE"
             echo "Allowed types:    ${TYPES//|/, }"
             echo "Ticket prefixes:  ${TICKET_PREFIXES//|/, }"
@@ -78,6 +82,7 @@ jobs:
             echo "Examples:"
             echo "  feature(enrollment): add clinician confirmation step [AIL-341]"
             echo "  fix(api): prevent duplicate order creation [AIL-110]"
+            echo "  fix: correct date format in confirmation email [AIL-347]"
             echo "  chore(ci): update quality gate"
             exit 1
           fi
@@ -85,7 +90,7 @@ jobs:
           # Under v2 the PR is the regulatory record. Nudge even when the ticket
           # is not yet mandatory.
           if [[ "$REQUIRE_TICKET" != "true" ]]; then
-            if [[ "$PR_TITLE" =~ ^(feature|fix|hotfix)\( ]] && [[ ! "$PR_TITLE" =~ $TICKET ]]; then
+            if [[ "$PR_TITLE" =~ $TICKETED ]] && [[ ! "$PR_TITLE" =~ $TICKET ]]; then
               echo "::warning::No ticket reference. Traceability for feature/fix/hotfix expects one."
             fi
           fi

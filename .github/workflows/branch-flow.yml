@@ -22,7 +22,7 @@ on:
         description: 'v2: comma-separated branch prefixes allowed to open a PR into main.'
         type: string
         required: false
-        default: "feature/,fix/,hotfix/"
+        default: "feature/,fix/,hotfix/,security/,improvement/,refactor/,performance/,chore/,ci/,documentation/"
 
       allow-stacked-prs:
         description: >-
@@ -104,10 +104,21 @@ jobs:
           echo "Model:         $MODEL"
           echo "Source branch: $SOURCE"
           echo "Target branch: $TARGET"
+          
+          # Pointer targets are never valid under v2 — not even for Dependabot.
+          # If a repo's dependabot.yml was not retargeted at cutover, this is
+          # the check that catches it. See runbook §4.7.
+          if [[ "$MODEL" == "v2" ]]; then
+            if [[ "$TARGET" == "dev" || "$TARGET" == "pre" || "$TARGET" == "pre-eb" || "$TARGET" == "demo" ]]; then
+              echo "::error::'$TARGET' is a deployment pointer, not a merge target."
+              echo "Open this PR against main. To deploy to pre, add the 'deploy:pre' label."
+              exit 1
+            fi
+          fi
 
           # --- Dependabot carve-out --------------------------------------------
           if [[ "$ALLOW_DEPENDABOT" == "true" ]]; then
-            if [[ "$PR_AUTHOR" == "dependabot[bot]" || "$SOURCE" == dependabot/* ]]; then
+            if [[ "$PR_AUTHOR" == "dependabot[bot]" && "$SOURCE" == dependabot/* ]]; then
               echo "Dependabot PR detected — branch-flow rules skipped."
               exit 0
             fi
