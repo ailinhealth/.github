@@ -59,9 +59,9 @@ jobs:
 
           TICKET="\[(${TICKET_PREFIXES})-[0-9]+\]"
 
-          if [[ "$REQUIRE_TICKET" == "true" ]]; then
+          if [[ "$REQUIRE_TICKET" == "true" && "$PR_TITLE" =~ ^(feature|fix|hotfix)\( ]]; then
             REGEX="^(${TYPES})\([a-z0-9-]+\): .+ ${TICKET}$"
-            TICKET_NOTE="required"
+            TICKET_NOTE="required for feature/fix/hotfix"
           else
             REGEX="^(${TYPES})\([a-z0-9-]+\): .+( ${TICKET})?$"
             TICKET_NOTE="optional"
