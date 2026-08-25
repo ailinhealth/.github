@@ -1,14 +1,17 @@
 <!--
-  Title format: type(scope): description [AIL-123]
+  Title format: type(scope): description [AIL-123]   — scope is optional
     feature(enrollment): add clinician confirmation step [AIL-341]
+    fix: correct date format in confirmation email [AIL-347]
+    chore(ci): update quality gate
 
   Types: feature fix hotfix security improvement refactor performance chore ci
          documentation — the same set as the type labels.
 
   The type in the title and the type label must agree. The label drives the
   changelog and therefore the release record; the title drives validate-title.
-  Nothing cross-checks them, so getting them out of step misfiles the change
-  in a record we have to keep.
+  On repos with require-title-label-match enabled, label-check fails on a
+  mismatch. Elsewhere nothing catches it, and the change is misfiled in a
+  record we have to keep.
 
   This PR is the change record. Write it for someone reading it in two years
   who wasn't here. Delete nothing — write "None" or "N/A — reason" instead.
@@ -16,8 +19,8 @@
 
 ## Summary
 
-**Jira:** AIL- / PLAT-
-**Type:** feature / fix / hotfix / chore / refactor
+**Jira:** AIL- / PLAT- <!-- required for feature, fix and hotfix -->
+**Type:** <!-- one of the types listed above; must match the type label -->
 
 <!-- Two or three sentences: what changes and why. Not a commit log. -->
 
