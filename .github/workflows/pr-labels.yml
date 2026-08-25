@@ -60,7 +60,7 @@ jobs:
             exit 1
           fi
 
-          VALID_JSON=$(jq -cRn --arg v "$VALID_LABELS" '$v | split(",")')
+          VALID_JSON=$(jq -cRn --arg v "$VALID_LABELS" '$v | split(",") | map(gsub("^\\s+|\\s+$";""))')
 
           # Only type labels count. Workflow labels (deploy:pre, blocked,
           # needs-qa, ...) and control labels are intentionally ignored here.
